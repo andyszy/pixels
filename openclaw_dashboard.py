@@ -23,7 +23,7 @@ from datetime import datetime
 
 # ── Config ────────────────────────────────────────────────────────────────────
 AWTRIX_HOST = "http://192.168.6.1"
-POLL_INTERVAL = 3  # seconds
+POLL_INTERVAL = 1  # seconds
 APP_NAME = "openclaw"
 
 # ── Icons (base64 JPEG) ───────────────────────────────────────────────────────
@@ -103,30 +103,44 @@ def get_active_sessions():
         print(f"[WARN] Failed to read sessions: {e}")
         return []
 
+# ── Crab Drawing ──────────────────────────────────────────────────────────────
+def draw_crab(x_offset, color):
+    """Generate draw instructions for a small crab at x_offset."""
+    # Small 7x7 crab shape
+    crab_pixels = [
+        (1, 0), (5, 0),                          # Claws top
+        (0, 1), (1, 1), (5, 1), (6, 1),          # Claws
+        (1, 2), (2, 2), (4, 2), (5, 2),          # Upper body
+        (2, 3), (3, 3), (4, 3),                  # Body middle
+        (1, 4), (2, 4), (3, 4), (4, 4), (5, 4),  # Body
+        (1, 5), (3, 5), (5, 5),                  # Legs
+        (0, 6), (2, 6), (4, 6), (6, 6),          # Feet
+    ]
+    return [{"dp": [x + x_offset, y, color]} for x, y in crab_pixels]
+
 # ── AWTRIX Push ───────────────────────────────────────────────────────────────
 def push_dashboard(sessions, model):
-    """Push stats to AWTRIX display."""
-    # Pick icon based on model
+    """Push stats to AWTRIX display with repeated crab icons."""
+    # Pick color based on model
     if 'opus' in model.lower():
-        icon = ICON_OPUS
         color = "#FF6432"  # Orange
     elif 'sonnet' in model.lower():
-        icon = ICON_SONNET
         color = "#6496FF"  # Blue
     else:
-        icon = ICON_IDLE
-        color = "#808080"  # Gray
+        color = "#404040"  # Dark gray when idle
     
-    # Format text: just the count of active sessions
-    text = str(sessions)
+    # Draw crabs for each active session (max 4 to fit display)
+    draw_commands = []
+    num_crabs = min(sessions, 4)  # Cap at 4 crabs (display is 32px wide)
+    
+    for i in range(num_crabs):
+        x_offset = i * 8  # Each crab is ~7px, space by 8
+        draw_commands.extend(draw_crab(x_offset, color))
     
     payload = json.dumps({
-        "icon": icon,
-        "text": text,
-        "color": color,
+        "draw": draw_commands,
         "duration": 5,
         "lifetime": 0,  # Never auto-remove
-        "noScroll": True,
     }).encode()
     
     url = f"{AWTRIX_HOST}/api/custom?name={APP_NAME}"
