@@ -79,26 +79,26 @@ def get_openclaw_stats():
         return None
 
 def get_active_sessions():
-    """Get active sessions from the gateway (active = updated within last 5 seconds)."""
+    """Get active sessions with activity level (hot = <5s, warm = <30s)."""
     import os
     sessions_file = os.path.expanduser('~/.openclaw/agents/main/sessions/sessions.json')
     try:
         with open(sessions_file, 'r') as f:
             data = json.load(f)
         
-        # Sessions are top-level keys (not nested)
         now = time.time() * 1000
-        active = []
+        sessions = []
         for key, session in data.items():
             if not isinstance(session, dict):
                 continue
             updated = session.get('updatedAt', 0)
-            if now - updated < 5000:  # 5 seconds
-                active.append({
-                    'key': key,
-                    'model': session.get('model', 'unknown'),
-                })
-        return active
+            age_ms = now - updated
+            
+            if age_ms < 5000:  # Very active (last 5 seconds)
+                sessions.append({'key': key, 'level': 'hot'})
+            elif age_ms < 30000:  # Semi-active (last 30 seconds)
+                sessions.append({'key': key, 'level': 'warm'})
+        return sessions
     except Exception as e:
         print(f"[WARN] Failed to read sessions: {e}")
         return []
@@ -119,17 +119,16 @@ def draw_crab(x_offset, color):
     return [{"dp": [x + x_offset, y, color]} for x, y in crab_pixels]
 
 # ── AWTRIX Push ───────────────────────────────────────────────────────────────
-def push_dashboard(sessions, model):
+def push_dashboard(sessions):
     """Push stats to AWTRIX display with repeated crab icons."""
-    # Always orange
-    color = "#FF6432" if sessions > 0 else "#404040"
-    
     # Draw crabs for each active session (max 4 to fit display)
     draw_commands = []
-    num_crabs = min(sessions, 4)  # Cap at 4 crabs (display is 32px wide)
+    num_crabs = min(len(sessions), 4)  # Cap at 4 crabs (display is 32px wide)
     
     for i in range(num_crabs):
         x_offset = i * 8  # Each crab is ~7px, space by 8
+        level = sessions[i].get('level', 'warm')
+        color = "#FF0000" if level == 'hot' else "#606060"  # Red for hot, gray for warm
         draw_commands.extend(draw_crab(x_offset, color))
     
     payload = json.dumps({
@@ -163,22 +162,18 @@ def main():
         try:
             sessions = get_active_sessions()
             
-            if sessions:
-                # Use the first active session's model for icon color
-                model = sessions[0].get('model', 'unknown')
-            else:
-                model = 'idle'
-            
-            n_sessions = len(sessions)
+            # Build state string for change detection
+            state = "|".join(f"{s['key']}:{s['level']}" for s in sessions) or "idle"
             
             # Only push if something changed (reduce traffic)
-            current = f"{n_sessions}|{model}"
-            if current != last_push:
-                success = push_dashboard(n_sessions, model)
+            if state != last_push:
+                success = push_dashboard(sessions)
                 if success:
                     timestamp = datetime.now().strftime("%H:%M:%S")
-                    print(f"[{timestamp}] {n_sessions} active session(s), {model}")
-                    last_push = current
+                    hot = sum(1 for s in sessions if s['level'] == 'hot')
+                    warm = sum(1 for s in sessions if s['level'] == 'warm')
+                    print(f"[{timestamp}] {hot} hot, {warm} warm")
+                    last_push = state
                     errors = 0
                 else:
                     errors += 1
