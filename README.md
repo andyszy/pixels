@@ -52,6 +52,30 @@ curl -X POST http://pixels.local/api/settings \
   -d '{"TIM": false, "TEMP": false}'
 ```
 
+### openclaw_dashboard.py
+
+Real-time OpenClaw stats dashboard:
+- Orange claw icon when using Opus
+- Blue claw icon when using Sonnet
+- Shows: `1s 68%` (1 session, 68% context used)
+
+Polls every 3 seconds, pushes to AWTRIX via HTTP.
+
+```bash
+# Run manually
+python3 openclaw_dashboard.py
+
+# Install as launchd service (runs at boot)
+cp com.openclaw.dashboard.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.openclaw.dashboard.plist
+
+# Check status
+launchctl list | grep openclaw
+
+# Stop
+launchctl unload ~/Library/LaunchAgents/com.openclaw.dashboard.plist
+```
+
 ## Dependencies
 
 - Python 3
