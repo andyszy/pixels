@@ -79,7 +79,7 @@ def get_openclaw_stats():
         return None
 
 def get_active_sessions():
-    """Get active sessions with activity level (hot = <5s, warm = <30s)."""
+    """Get active sessions with age in seconds (max 30s window)."""
     import os
     sessions_file = os.path.expanduser('~/.openclaw/agents/main/sessions/sessions.json')
     try:
@@ -92,44 +92,51 @@ def get_active_sessions():
             if not isinstance(session, dict):
                 continue
             updated = session.get('updatedAt', 0)
-            age_ms = now - updated
+            age_sec = (now - updated) / 1000
             
-            if age_ms < 5000:  # Very active (last 5 seconds)
-                sessions.append({'key': key, 'level': 'hot'})
-            elif age_ms < 30000:  # Semi-active (last 30 seconds)
-                sessions.append({'key': key, 'level': 'warm'})
+            if age_sec < 30:  # Only show sessions active in last 30 seconds
+                sessions.append({'key': key, 'age_sec': age_sec})
+        
+        # Sort by most recent first
+        sessions.sort(key=lambda s: s['age_sec'])
         return sessions
     except Exception as e:
         print(f"[WARN] Failed to read sessions: {e}")
         return []
 
-# ── Crab Drawing ──────────────────────────────────────────────────────────────
-def draw_crab(x_offset, color):
-    """Generate draw instructions for a small crab at x_offset."""
-    # Small 7x7 crab shape
-    crab_pixels = [
-        (1, 0), (5, 0),                          # Claws top
-        (0, 1), (1, 1), (5, 1), (6, 1),          # Claws
-        (1, 2), (2, 2), (4, 2), (5, 2),          # Upper body
-        (2, 3), (3, 3), (4, 3),                  # Body middle
-        (1, 4), (2, 4), (3, 4), (4, 4), (5, 4),  # Body
-        (1, 5), (3, 5), (5, 5),                  # Legs
-        (0, 6), (2, 6), (4, 6), (6, 6),          # Feet
-    ]
-    return [{"dp": [x + x_offset, y, color]} for x, y in crab_pixels]
+# ── Equalizer Bar Drawing ─────────────────────────────────────────────────────
+def draw_bar(x_offset, height, max_height=8):
+    """Draw a vertical bar with gradient (brighter at top)."""
+    commands = []
+    bar_width = 3  # 3 pixels wide per bar
+    
+    for y in range(max_height - height, max_height):
+        # Gradient: brighter at top (lower y values when drawn)
+        intensity = 1.0 - (y / max_height) * 0.6  # 100% at top, 40% at bottom
+        r = int(255 * intensity)
+        g = int(100 * intensity)
+        b = int(50 * intensity)
+        color = f"#{r:02x}{g:02x}{b:02x}"
+        
+        for dx in range(bar_width):
+            commands.append({"dp": [x_offset + dx, y, color]})
+    
+    return commands
 
 # ── AWTRIX Push ───────────────────────────────────────────────────────────────
 def push_dashboard(sessions):
-    """Push stats to AWTRIX display with repeated crab icons."""
-    # Draw crabs for each active session (max 4 to fit display)
+    """Push stats to AWTRIX display with equalizer bars."""
     draw_commands = []
-    num_crabs = min(len(sessions), 4)  # Cap at 4 crabs (display is 32px wide)
+    bar_width = 4  # 3px bar + 1px gap
+    max_bars = 32 // bar_width  # How many bars fit on 32px display
     
-    for i in range(num_crabs):
-        x_offset = i * 8  # Each crab is ~7px, space by 8
-        level = sessions[i].get('level', 'warm')
-        color = "#FF0000" if level == 'hot' else "#606060"  # Red for hot, gray for warm
-        draw_commands.extend(draw_crab(x_offset, color))
+    for i, session in enumerate(sessions[:max_bars]):
+        x_offset = i * bar_width
+        age_sec = session.get('age_sec', 30)
+        
+        # Map age to height: 0s = 8px, 30s = 1px (linear decay)
+        height = max(1, int(8 - (age_sec / 30) * 7))
+        draw_commands.extend(draw_bar(x_offset, height))
     
     payload = json.dumps({
         "draw": draw_commands,
@@ -162,17 +169,16 @@ def main():
         try:
             sessions = get_active_sessions()
             
-            # Build state string for change detection
-            state = "|".join(f"{s['key']}:{s['level']}" for s in sessions) or "idle"
+            # Build state string for change detection (round age to reduce noise)
+            state = "|".join(f"{s['key']}:{int(s['age_sec'])}" for s in sessions) or "idle"
             
             # Only push if something changed (reduce traffic)
             if state != last_push:
                 success = push_dashboard(sessions)
                 if success:
                     timestamp = datetime.now().strftime("%H:%M:%S")
-                    hot = sum(1 for s in sessions if s['level'] == 'hot')
-                    warm = sum(1 for s in sessions if s['level'] == 'warm')
-                    print(f"[{timestamp}] {hot} hot, {warm} warm")
+                    ages = [f"{s['age_sec']:.0f}s" for s in sessions[:4]]
+                    print(f"[{timestamp}] {len(sessions)} bars: {', '.join(ages) if ages else 'idle'}")
                     last_push = state
                     errors = 0
                 else:
