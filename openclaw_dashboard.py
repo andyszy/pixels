@@ -79,7 +79,7 @@ def get_openclaw_stats():
         return None
 
 def get_active_sessions():
-    """Get active sessions from the gateway."""
+    """Get active sessions from the gateway (active = updated within last 5 seconds)."""
     import os
     sessions_file = os.path.expanduser('~/.openclaw/agents/main/sessions/sessions.json')
     try:
@@ -93,12 +93,10 @@ def get_active_sessions():
             if not isinstance(session, dict):
                 continue
             updated = session.get('updatedAt', 0)
-            if now - updated < 300000:  # 5 minutes
+            if now - updated < 5000:  # 5 seconds
                 active.append({
                     'key': key,
                     'model': session.get('model', 'unknown'),
-                    'tokens': session.get('totalTokens', 0),
-                    'context': session.get('contextTokens', 200000),
                 })
         return active
     except Exception as e:
@@ -106,7 +104,7 @@ def get_active_sessions():
         return []
 
 # ── AWTRIX Push ───────────────────────────────────────────────────────────────
-def push_dashboard(sessions, model, context_pct):
+def push_dashboard(sessions, model):
     """Push stats to AWTRIX display."""
     # Pick icon based on model
     if 'opus' in model.lower():
@@ -119,8 +117,8 @@ def push_dashboard(sessions, model, context_pct):
         icon = ICON_IDLE
         color = "#808080"  # Gray
     
-    # Format text: "1s 69%" (1 session, 69% context)
-    text = f"{sessions}s {context_pct}%"
+    # Format text: just the count of active sessions
+    text = str(sessions)
     
     payload = json.dumps({
         "icon": icon,
@@ -157,26 +155,20 @@ def main():
             sessions = get_active_sessions()
             
             if sessions:
-                # Use the most recent session's model
-                sessions.sort(key=lambda s: s.get('tokens', 0), reverse=True)
-                top = sessions[0]
-                model = top.get('model', 'unknown')
-                tokens = top.get('tokens', 0)
-                context = top.get('context', 200000)
-                context_pct = int((tokens / context) * 100) if context > 0 else 0
+                # Use the first active session's model for icon color
+                model = sessions[0].get('model', 'unknown')
             else:
                 model = 'idle'
-                context_pct = 0
             
             n_sessions = len(sessions)
             
             # Only push if something changed (reduce traffic)
-            current = f"{n_sessions}|{model}|{context_pct}"
+            current = f"{n_sessions}|{model}"
             if current != last_push:
-                success = push_dashboard(n_sessions, model, context_pct)
+                success = push_dashboard(n_sessions, model)
                 if success:
                     timestamp = datetime.now().strftime("%H:%M:%S")
-                    print(f"[{timestamp}] {n_sessions} session(s), {model}, {context_pct}% ctx")
+                    print(f"[{timestamp}] {n_sessions} active session(s), {model}")
                     last_push = current
                     errors = 0
                 else:
