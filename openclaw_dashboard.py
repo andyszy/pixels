@@ -127,7 +127,7 @@ def push_dashboard(sessions, model, context_pct):
         "text": text,
         "color": color,
         "duration": 5,
-        "lifetime": 10,  # Remove if not refreshed
+        "lifetime": 0,  # Never auto-remove
         "noScroll": True,
     }).encode()
     
