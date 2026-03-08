@@ -121,13 +121,8 @@ def draw_crab(x_offset, color):
 # ── AWTRIX Push ───────────────────────────────────────────────────────────────
 def push_dashboard(sessions, model):
     """Push stats to AWTRIX display with repeated crab icons."""
-    # Pick color based on model
-    if 'opus' in model.lower():
-        color = "#FF6432"  # Orange
-    elif 'sonnet' in model.lower():
-        color = "#6496FF"  # Blue
-    else:
-        color = "#404040"  # Dark gray when idle
+    # Always orange
+    color = "#FF6432" if sessions > 0 else "#404040"
     
     # Draw crabs for each active session (max 4 to fit display)
     draw_commands = []
